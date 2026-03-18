@@ -1,0 +1,23 @@
+{
+  "lithium_input": 0.11449676043332294,
+  "additive_ratio": 0.0923202550532626,
+  "process_time": 0.11474619549303425,
+  "humidity": 0.11165685935652876,
+  "tank_pressure": 0.09107244778047989,
+  "sintering_temp": 0.12407180856930522,
+  "metal_impurity": 0.1135891580092158,
+  "d50": 0.13146151119303007,
+  "anomaly_depth": 0.10658500411182044,
+  "x_columns": [
+    "lithium_input",
+    "additive_ratio",
+    "process_time",
+    "humidity",
+    "tank_pressure",
+    "sintering_temp",
+    "metal_impurity",
+    "d50",
+    "anomaly_depth"
+  ],
+  "source": "StackingClassifier(XGB+LGBM+RF) average"
+}

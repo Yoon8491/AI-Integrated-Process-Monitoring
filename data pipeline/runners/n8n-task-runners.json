@@ -1,0 +1,11 @@
+{
+  "task-runners": [
+    {
+      "runner-type": "python",
+      "env-overrides": {
+        "N8N_RUNNERS_STDLIB_ALLOW": "json,math,random,statistics,datetime,time,os,platform",
+        "N8N_RUNNERS_EXTERNAL_ALLOW": "numpy,pandas,sklearn,scikit-learn"
+      }
+    }
+  ]
+}

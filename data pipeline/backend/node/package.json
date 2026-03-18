@@ -1,0 +1,14 @@
+{
+  "name": "node-api",
+  "version": "1.0.0",
+  "description": "n8n ingestion API with MariaDB",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mysql2": "^3.11.0"
+  }
+}

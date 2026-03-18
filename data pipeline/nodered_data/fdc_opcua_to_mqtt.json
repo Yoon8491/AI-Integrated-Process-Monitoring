@@ -1,0 +1,142 @@
+[
+  {
+    "id": "f5b6b7c1a0b7b4b1",
+    "type": "tab",
+    "label": "FDC OPC UA → MQTT (PLC Dummy)",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "2d9f0a7f6b25c3aa",
+    "type": "OpcUa-Endpoint",
+    "endpoint": "opc.tcp://plc-dummy:4840/plcua/",
+    "login": false
+  },
+  {
+    "id": "b7d5d4f67f7f7d21",
+    "type": "mqtt-broker",
+    "name": "mosquitto",
+    "broker": "mosquitto",
+    "port": "1883",
+    "clientid": "nodered-fdc",
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoConnect": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "a7d0b3b2c13d0b21",
+    "type": "inject",
+    "z": "f5b6b7c1a0b7b4b1",
+    "name": "Subscribe PLC_001 (6s keepalive)",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "2",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 210,
+    "y": 140,
+    "wires": [
+      [
+        "5a1b6c1f2e3d4a50"
+      ]
+    ]
+  },
+  {
+    "id": "5a1b6c1f2e3d4a50",
+    "type": "function",
+    "z": "f5b6b7c1a0b7b4b1",
+    "name": "Build subscribe items",
+    "func": "// node-red-contrib-opcua는 msg.topic에 NodeId, payload에 interval 등을 사용합니다.\n// 여기서는 readmultiple/subscribe를 쉽게 쓰기 위해 item 리스트를 msg.payload로 구성합니다.\n// NOTE: opcua-dummy 서버는 namespace index가 보통 2로 올라옵니다.\n//       Browse로 확인 후 ns=2가 아니면 아래 ns를 바꾸세요.\nconst ns = 2;\nconst base = `ns=${ns};s=`;\n\nmsg.payload = [\n  { item: base + 'PLC_001.temperature_c', datatype: 'Double' },\n  { item: base + 'PLC_001.pressure_bar', datatype: 'Double' },\n  { item: base + 'PLC_001.motor_rpm', datatype: 'Int64' },\n  { item: base + 'PLC_001.alarm', datatype: 'Boolean' },\n];\n\n// 구독 interval(모니터링 주기)\nmsg.interval = 1000; // ms\nreturn msg;",
+    "outputs": 1,
+    "x": 470,
+    "y": 140,
+    "wires": [
+      [
+        "9e5c3a2b1c0d9f88"
+      ]
+    ]
+  },
+  {
+    "id": "9e5c3a2b1c0d9f88",
+    "type": "OpcUa-Client",
+    "z": "f5b6b7c1a0b7b4b1",
+    "endpoint": "2d9f0a7f6b25c3aa",
+    "action": "subscribe",
+    "time": "6",
+    "timeUnit": "s",
+    "name": "OPC UA subscribe",
+    "x": 690,
+    "y": 140,
+    "wires": [
+      [
+        "8b7a6c5d4e3f2a19"
+      ]
+    ]
+  },
+  {
+    "id": "8b7a6c5d4e3f2a19",
+    "type": "function",
+    "z": "f5b6b7c1a0b7b4b1",
+    "name": "Normalize → MQTT topic/payload",
+    "func": "// node-red-contrib-opcua subscribe 출력은 msg.topic(NodeId) / msg.payload(value) 형태가 일반적입니다.\n// 여기서는 토픽을 fdc/plc/PLC-001/<tag>로 정규화하고, payload는 JSON으로 만듭니다.\n\nconst nodeId = (msg.topic || '').toString();\n\n// nodeId 예: ns=2;s=PLC_001.temperature_c\nlet tag = nodeId;\nconst m = nodeId.match(/s=PLC_001\\.(.+)$/);\nif (m && m[1]) tag = m[1];\n\nconst value = msg.payload;\n\nmsg.topic = `fdc/plc/PLC-001/${tag}`;\nmsg.payload = {\n  tag,\n  value,\n  ts: Date.now(),\n  device_id: 'PLC-001'\n};\nreturn msg;",
+    "outputs": 1,
+    "x": 950,
+    "y": 140,
+    "wires": [
+      [
+        "1c2d3e4f5a6b7c8d",
+        "c1b2a3d4e5f60718"
+      ]
+    ]
+  },
+  {
+    "id": "1c2d3e4f5a6b7c8d",
+    "type": "mqtt out",
+    "z": "f5b6b7c1a0b7b4b1",
+    "name": "Publish to MQTT",
+    "topic": "",
+    "qos": "0",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "b7d5d4f67f7f7d21",
+    "x": 1220,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "c1b2a3d4e5f60718",
+    "type": "debug",
+    "z": "f5b6b7c1a0b7b4b1",
+    "name": "MQTT payload",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "x": 1210,
+    "y": 170,
+    "wires": []
+  }
+]
+

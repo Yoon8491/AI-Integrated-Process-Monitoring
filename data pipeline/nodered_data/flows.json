@@ -1,0 +1,1572 @@
+[
+    {
+        "id": "f5b6b7c1a0b7b4b1",
+        "type": "tab",
+        "label": "FDC OPC UA → MQTT (PLC Dummy)",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "5fb754249e4584c1",
+        "type": "tab",
+        "label": "플로우 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "2d9f0a7f6b25c3aa",
+        "type": "OpcUa-Endpoint",
+        "endpoint": "opc.tcp://plc-dummy:4840/plcua/",
+        "login": false
+    },
+    {
+        "id": "b7d5d4f67f7f7d21",
+        "type": "mqtt-broker",
+        "name": "mosquitto",
+        "broker": "mosquitto",
+        "port": "1883",
+        "clientid": "nodered-fdc",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "19f4156e0152b1b9",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "mosquitto",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "297f0dfc2117e149",
+        "type": "OpcUa-Endpoint",
+        "name": "FDC_OPC UA",
+        "endpoint": "opc.tcp://plc-dummy:4840",
+        "secpol": "None",
+        "secmode": "None",
+        "none": true,
+        "login": false,
+        "usercert": false,
+        "usercertificate": "",
+        "userprivatekey": ""
+    },
+    {
+        "id": "a7d0b3b2c13d0b21",
+        "type": "inject",
+        "z": "f5b6b7c1a0b7b4b1",
+        "name": "Subscribe PLC_001 (6s keepalive)",
+        "props": [],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 210,
+        "y": 140,
+        "wires": [
+            [
+                "5a1b6c1f2e3d4a50"
+            ]
+        ]
+    },
+    {
+        "id": "5a1b6c1f2e3d4a50",
+        "type": "function",
+        "z": "f5b6b7c1a0b7b4b1",
+        "name": "Build subscribe items",
+        "func": "// node-red-contrib-opcua는 msg.topic에 NodeId, payload에 interval 등을 사용합니다.\n// 여기서는 readmultiple/subscribe를 쉽게 쓰기 위해 item 리스트를 msg.payload로 구성합니다.\n// NOTE: opcua-dummy 서버는 namespace index가 보통 2로 올라옵니다.\n//       Browse로 확인 후 ns=2가 아니면 아래 ns를 바꾸세요.\nconst ns = 2;\nconst base = `ns=${ns};s=`;\n\nmsg.payload = [\n  { item: base + 'PLC_001.temperature_c', datatype: 'Double' },\n  { item: base + 'PLC_001.pressure_bar', datatype: 'Double' },\n  { item: base + 'PLC_001.motor_rpm', datatype: 'Int64' },\n  { item: base + 'PLC_001.alarm', datatype: 'Boolean' },\n];\n\n// 구독 interval(모니터링 주기)\nmsg.interval = 1000; // ms\nreturn msg;",
+        "outputs": 1,
+        "x": 470,
+        "y": 140,
+        "wires": [
+            [
+                "9e5c3a2b1c0d9f88"
+            ]
+        ]
+    },
+    {
+        "id": "9e5c3a2b1c0d9f88",
+        "type": "OpcUa-Client",
+        "z": "f5b6b7c1a0b7b4b1",
+        "endpoint": "2d9f0a7f6b25c3aa",
+        "action": "subscribe",
+        "time": "6",
+        "timeUnit": "s",
+        "name": "OPC UA subscribe",
+        "x": 690,
+        "y": 140,
+        "wires": [
+            [
+                "8b7a6c5d4e3f2a19"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "8b7a6c5d4e3f2a19",
+        "type": "function",
+        "z": "f5b6b7c1a0b7b4b1",
+        "name": "Normalize → MQTT topic/payload",
+        "func": "// node-red-contrib-opcua subscribe 출력은 msg.topic(NodeId) / msg.payload(value) 형태가 일반적입니다.\n// 여기서는 토픽을 fdc/plc/PLC-001/<tag>로 정규화하고, payload는 JSON으로 만듭니다.\n\nconst nodeId = (msg.topic || '').toString();\n\n// nodeId 예: ns=2;s=PLC_001.temperature_c\nlet tag = nodeId;\nconst m = nodeId.match(/s=PLC_001\\.(.+)$/);\nif (m && m[1]) tag = m[1];\n\nconst value = msg.payload;\n\nmsg.topic = `fdc/plc/PLC-001/${tag}`;\nmsg.payload = {\n  tag,\n  value,\n  ts: Date.now(),\n  device_id: 'PLC-001'\n};\nreturn msg;",
+        "outputs": 1,
+        "x": 950,
+        "y": 140,
+        "wires": [
+            [
+                "1c2d3e4f5a6b7c8d",
+                "c1b2a3d4e5f60718"
+            ]
+        ]
+    },
+    {
+        "id": "1c2d3e4f5a6b7c8d",
+        "type": "mqtt out",
+        "z": "f5b6b7c1a0b7b4b1",
+        "name": "Publish to MQTT",
+        "topic": "",
+        "qos": "0",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "b7d5d4f67f7f7d21",
+        "x": 1220,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "c1b2a3d4e5f60718",
+        "type": "debug",
+        "z": "f5b6b7c1a0b7b4b1",
+        "name": "MQTT payload",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "x": 1210,
+        "y": 170,
+        "wires": []
+    },
+    {
+        "id": "6a3af5c665a1f505",
+        "type": "inject",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 690,
+        "y": 480,
+        "wires": [
+            [
+                "a7de296118b8b212",
+                "b1d7d2c2e0c0686c",
+                "2d763982aa11bc47",
+                "3f81e31e3d29d208",
+                "d2f2c12057021958",
+                "7451fa59eff0bf9b",
+                "4ec0bbe0ef269b5e",
+                "1e86b333f43b9a5d",
+                "10dc2bcf62a3122b",
+                "fb6bae37a8ffef3d",
+                "de1e7d87a3e2aadb",
+                "0488a5671c60c29d",
+                "84301a79283d854f",
+                "9060d16f39effa54",
+                "3098b5e87ae0c7f3",
+                "af275b6909c96adb"
+            ]
+        ]
+    },
+    {
+        "id": "2fbe7e9627a7333d",
+        "type": "join",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "mode": "custom",
+        "build": "object",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "useparts": false,
+        "accumulate": false,
+        "timeout": "",
+        "count": "16",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 1550,
+        "y": 300,
+        "wires": [
+            [
+                "b01f40bd81524814"
+            ]
+        ]
+    },
+    {
+        "id": "b01f40bd81524814",
+        "type": "mqtt out",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "topic": "factory/sensor/opcua",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "19f4156e0152b1b9",
+        "x": 1740,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "b7f15bd1f533519b",
+        "type": "debug",
+        "z": "5fb754249e4584c1",
+        "name": "debug 1",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1820,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "327d6e16a1334813",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "FLOW-001",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 120,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "943da21fcc6ebcd5",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "GAP-001",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 180,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "149c3b14b5479cd4",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "HUMID-001",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 240,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "92b8efc9493549ee",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "PRESS-001",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 300,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "223abbbbd2809351",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "PRESS-002",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 360,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "34993cbdd8e8152f",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "PRESS-003",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 420,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "a6b59b1bfd16159c",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "PRESS-004",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 480,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "87a7ece48f7ae468",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "TEMP-001",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 540,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "cb1b387b876b9888",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "TEMP-002",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 600,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "4d1437db83cae528",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "TEMP-003",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 660,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "6bae40120faa13c7",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "TEMP-004",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 720,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "d5c32c1857f6125c",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "TEMP-005",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 780,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "737e50352bab65ec",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "TEMP-006",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 840,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "599f7252ea10b139",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "VIB-001",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 900,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "580561925bbc6a95",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "VIB-002",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 960,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "0c8f72596e9b1fa7",
+        "type": "change",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "rules": [
+            {
+                "t": "set",
+                "p": "topic",
+                "pt": "msg",
+                "to": "VIB-003",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1320,
+        "y": 1020,
+        "wires": [
+            [
+                "2fbe7e9627a7333d"
+            ]
+        ]
+    },
+    {
+        "id": "a7de296118b8b212",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=FLOW-001",
+        "datatype": "Double",
+        "value": "",
+        "name": "FLOW-001",
+        "x": 930,
+        "y": 120,
+        "wires": [
+            [
+                "1565e2022b6906e0"
+            ]
+        ]
+    },
+    {
+        "id": "b1d7d2c2e0c0686c",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=GAP-001",
+        "datatype": "Double",
+        "value": "",
+        "name": "GAP-001",
+        "x": 920,
+        "y": 180,
+        "wires": [
+            [
+                "0a128c61fafce367"
+            ]
+        ]
+    },
+    {
+        "id": "2d763982aa11bc47",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=HUMID-001",
+        "datatype": "Double",
+        "value": "",
+        "name": "HUMID-001",
+        "x": 930,
+        "y": 240,
+        "wires": [
+            [
+                "e645b8e3d013a438"
+            ]
+        ]
+    },
+    {
+        "id": "3f81e31e3d29d208",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=PRESS-001",
+        "datatype": "Double",
+        "value": "",
+        "name": "PRESS-001",
+        "x": 930,
+        "y": 300,
+        "wires": [
+            [
+                "b7f9dccca788c576"
+            ]
+        ]
+    },
+    {
+        "id": "d2f2c12057021958",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=PRESS-002",
+        "datatype": "Double",
+        "value": "",
+        "name": "PRESS-002",
+        "x": 930,
+        "y": 360,
+        "wires": [
+            [
+                "eb84c53ebc5eae3f"
+            ]
+        ]
+    },
+    {
+        "id": "7451fa59eff0bf9b",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=PRESS-003",
+        "datatype": "Double",
+        "value": "",
+        "name": "PRESS-003",
+        "x": 930,
+        "y": 420,
+        "wires": [
+            [
+                "03a1f05e4726895a"
+            ]
+        ]
+    },
+    {
+        "id": "4ec0bbe0ef269b5e",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=PRESS-004",
+        "datatype": "Double",
+        "value": "",
+        "name": "PRESS-004",
+        "x": 930,
+        "y": 480,
+        "wires": [
+            [
+                "2d76198e580eda87"
+            ]
+        ]
+    },
+    {
+        "id": "1e86b333f43b9a5d",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=TEMP-001",
+        "datatype": "Double",
+        "value": "",
+        "name": "TEMP-001",
+        "x": 930,
+        "y": 540,
+        "wires": [
+            [
+                "3045097af707c830"
+            ]
+        ]
+    },
+    {
+        "id": "10dc2bcf62a3122b",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=TEMP-002",
+        "datatype": "Double",
+        "value": "",
+        "name": "TEMP-002",
+        "x": 930,
+        "y": 600,
+        "wires": [
+            [
+                "9f0ee870a8ab5e0c"
+            ]
+        ]
+    },
+    {
+        "id": "fb6bae37a8ffef3d",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=TEMP-003",
+        "datatype": "Double",
+        "value": "",
+        "name": "TEMP-003",
+        "x": 930,
+        "y": 660,
+        "wires": [
+            [
+                "97a5904f5047b6ea"
+            ]
+        ]
+    },
+    {
+        "id": "de1e7d87a3e2aadb",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=TEMP-004",
+        "datatype": "Double",
+        "value": "",
+        "name": "TEMP-004",
+        "x": 930,
+        "y": 720,
+        "wires": [
+            [
+                "47a018e7514ec980"
+            ]
+        ]
+    },
+    {
+        "id": "0488a5671c60c29d",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=TEMP-005",
+        "datatype": "Double",
+        "value": "",
+        "name": "TEMP-005",
+        "x": 930,
+        "y": 780,
+        "wires": [
+            [
+                "798a776e80d28f0d"
+            ]
+        ]
+    },
+    {
+        "id": "84301a79283d854f",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=TEMP-006",
+        "datatype": "Double",
+        "value": "",
+        "name": "TEMP-006",
+        "x": 930,
+        "y": 840,
+        "wires": [
+            [
+                "6d20f5d430a3c679"
+            ]
+        ]
+    },
+    {
+        "id": "9060d16f39effa54",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=VIB-001",
+        "datatype": "Double",
+        "value": "",
+        "name": "VIB-001",
+        "x": 920,
+        "y": 900,
+        "wires": [
+            [
+                "a8f28c1034339226"
+            ]
+        ]
+    },
+    {
+        "id": "3098b5e87ae0c7f3",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=VIB-002",
+        "datatype": "Double",
+        "value": "",
+        "name": "VIB-002",
+        "x": 920,
+        "y": 960,
+        "wires": [
+            [
+                "353b823a11ca3acd"
+            ]
+        ]
+    },
+    {
+        "id": "af275b6909c96adb",
+        "type": "OpcUa-Item",
+        "z": "5fb754249e4584c1",
+        "item": "ns=2;s=VIB-003",
+        "datatype": "Double",
+        "value": "",
+        "name": "VIB-003",
+        "x": 920,
+        "y": 1020,
+        "wires": [
+            [
+                "f1297e2ec1abcab1"
+            ]
+        ]
+    },
+    {
+        "id": "1565e2022b6906e0",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 120,
+        "wires": [
+            [
+                "327d6e16a1334813"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "0a128c61fafce367",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 180,
+        "wires": [
+            [
+                "943da21fcc6ebcd5"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "e645b8e3d013a438",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 240,
+        "wires": [
+            [
+                "149c3b14b5479cd4"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "b7f9dccca788c576",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 300,
+        "wires": [
+            [
+                "92b8efc9493549ee"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "eb84c53ebc5eae3f",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 360,
+        "wires": [
+            [
+                "223abbbbd2809351"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "03a1f05e4726895a",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 420,
+        "wires": [
+            [
+                "34993cbdd8e8152f"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "2d76198e580eda87",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 480,
+        "wires": [
+            [
+                "a6b59b1bfd16159c"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "3045097af707c830",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 540,
+        "wires": [
+            [
+                "87a7ece48f7ae468"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "9f0ee870a8ab5e0c",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 600,
+        "wires": [
+            [
+                "cb1b387b876b9888"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "97a5904f5047b6ea",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 660,
+        "wires": [
+            [
+                "4d1437db83cae528"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "47a018e7514ec980",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 720,
+        "wires": [
+            [
+                "6bae40120faa13c7"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "798a776e80d28f0d",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 780,
+        "wires": [
+            [
+                "d5c32c1857f6125c"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "6d20f5d430a3c679",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 840,
+        "wires": [
+            [
+                "737e50352bab65ec"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "a8f28c1034339226",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 900,
+        "wires": [
+            [
+                "599f7252ea10b139"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "353b823a11ca3acd",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 960,
+        "wires": [
+            [
+                "580561925bbc6a95"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "f1297e2ec1abcab1",
+        "type": "OpcUa-Client",
+        "z": "5fb754249e4584c1",
+        "endpoint": "297f0dfc2117e149",
+        "action": "subscribe",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": "1",
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "setstatusandtime": false,
+        "keepsessionalive": false,
+        "name": "",
+        "applicationName": "",
+        "applicationUri": "",
+        "x": 1120,
+        "y": 1020,
+        "wires": [
+            [
+                "0c8f72596e9b1fa7"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "cc1a5198d17ce444",
+        "type": "mqtt in",
+        "z": "5fb754249e4584c1",
+        "name": "",
+        "topic": "factory/sensor/opcua",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "19f4156e0152b1b9",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 1620,
+        "y": 200,
+        "wires": [
+            [
+                "b7f15bd1f533519b"
+            ]
+        ]
+    }
+]

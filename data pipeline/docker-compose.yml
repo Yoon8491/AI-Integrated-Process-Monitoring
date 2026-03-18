@@ -1,0 +1,235 @@
+# MariaDB는 Lightsail 공용 DB 사용 → 로컬 컨테이너 제거
+# n8n MySQL 노드 연결 시 .env의 DB_HOST (Lightsail 엔드포인트) 사용
+services:
+  n8n:
+    image: n8nio/n8n:2.4.8
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: http://localhost:5678
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_RUNNERS_MODE: external
+      N8N_RUNNERS_BROKER_LISTEN_ADDRESS: 0.0.0.0
+      N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN}
+      N8N_NATIVE_PYTHON_RUNNER: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - task-runners
+    networks:
+      - n8n-net
+
+  task-runners:
+    image: n8nio/runners:2.4.8
+    container_name: n8n-runners
+    restart: unless-stopped
+    environment:
+      N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
+      N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN}
+    networks:
+      - n8n-net
+
+  fastapi:
+    build: ./backend/fastapi
+    container_name: fastapi
+    restart: unless-stopped
+    environment:
+      MODEL_PATH: /app/model/model.joblib
+      WATCHFILES_FORCE_POLLING: "1"
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./backend/fastapi/data:/app/data
+      - ./backend/fastapi/model:/app/model
+    networks:
+      - n8n-net
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+      - ./mosquitto/config:/mosquitto/config
+    # passwordfile 없음 → mosquitto-dev.conf 사용 (allow_anonymous만)
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto-dev.conf"]
+    networks:
+      - n8n-net
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    networks:
+      - n8n-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+    networks:
+      - n8n-net
+
+  # Apache Superset (BI 대시보드)
+  superset-db:
+    image: postgres:15-alpine
+    container_name: superset-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset}
+    volumes:
+      - superset_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n8n-net
+
+  superset:
+    image: apache/superset:latest-dev
+    container_name: superset
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      DATABASE_DIALECT: postgresql
+      DATABASE_HOST: superset-db
+      DATABASE_PORT: 5432
+      DATABASE_USER: superset
+      DATABASE_PASSWORD: ${SUPERSET_DB_PASSWORD:-superset}
+      DATABASE_DB: superset
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-minseo-superset-secret-change-in-production}
+      SUPERSET_LOAD_EXAMPLES: "no"
+    depends_on:
+      superset-db:
+        condition: service_healthy
+    networks:
+      - n8n-net
+
+  opcua:
+    image: mcr.microsoft.com/iotedge/opc-plc:latest
+    container_name: opcua
+    restart: unless-stopped
+    ports:
+      - "50000:50000"
+      - "8080:8080"
+    environment:
+      - PLC__SIMULATION__SIMULATIONFILE=Deterministic
+    networks:
+      - n8n-net
+
+  # FDC 파이프라인: PLC 더미 → Node-RED → MQTT → Telegraf → InfluxDB
+  plc-dummy:
+    build:
+      context: .
+      dockerfile: ./plc_dummy/Dockerfile
+    container_name: plc-dummy
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "4840:4840"
+    networks:
+      - n8n-net
+
+  # Node-RED: /data를 호스트(맥북) 폴더에 연결 → 도커 내렸다 올려도 플로우/설정 유지
+  nodered:
+    build: ./nodered
+    container_name: nodered
+    restart: unless-stopped
+    ports:
+      - "1880:1880"
+    environment:
+      TZ: Asia/Seoul
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    volumes:
+      - ./nodered_data:/data
+    depends_on:
+      - mosquitto
+    networks:
+      - n8n-net
+    # /data를 사용자 디렉터리로 사용 → settings.js(uiHost 0.0.0.0) 적용되어 외부 접속 가능
+    command: ["node-red", "--userDir", "/data"]
+
+  telegraf:
+    image: telegraf:1.28
+    container_name: telegraf
+    restart: unless-stopped
+    environment:
+      MQTT_USER: ${MQTT_USER:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-ktca}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-fdc}
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    depends_on:
+      - mosquitto
+      - influxdb
+    networks:
+      - n8n-net
+  # kafka:
+  #   image: docker.io/bitnami/kafka:4.1
+  #   container_name: kafka
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9092:9092"
+  #   environment:
+  #     KAFKA_CFG_NODE_ID: 1
+  #     KAFKA_CFG_PROCESS_ROLES: broker,controller
+  #     KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+  #     KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  #     KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+  #     KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+  #     KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  #     KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+  #     ALLOW_PLAINTEXT_LISTENER: "yes"
+  #   volumes:
+  #     - kafka_data:/bitnami/kafka
+  #   networks:
+  #     - n8n-net
+
+volumes:
+  n8n_data:
+    external: true
+    name: minseo_n8n_data
+  influxdb_data:
+  influxdb_config:
+  grafana_data:
+  superset_db_data:
+  # kafka_data:
+
+networks:
+  n8n-net:

@@ -1,0 +1,9 @@
+{
+  "name": "nodered-fdc",
+  "description": "Node-RED with OPC UA and MQTT for FDC pipeline",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "node-red-contrib-opcua": "^0.2.339"
+  }
+}
